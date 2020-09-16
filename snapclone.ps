@@ -1,0 +1,98 @@
+ # Setup Credentials
+#$Creds = Get-Credential
+Write-Host "Setting up Credentials" -ForegroundColor yellow
+#$f = New-PfaArray -EndPoint 192.168.11 -Credentials $Creds -IgnoreCertificateError
+$f = New-PfaArray -EndPoint 10.226.224.112 -UserName pureuser -Password (ConvertTo-SecureString -String 'pureuser' -AsPlainText -Force) -IgnoreCertificateError
+
+Start-Sleep -Seconds 2
+
+$StartMs = Get-Date
+
+#
+# Setup some Disk and Volume variable, disks is the Windows disk number assigned to the Pure Volume
+# . databackup and temp are the SQL data volumes
+#
+
+
+$disks = "4", "5", "6"
+$data = "mssql2-data"
+$backup = "mssql2-backup"
+$temp = "mssql2-temp"
+
+Set-DbaDbState -SqlInstance WIN-BJFM234LVBM\MSSQLTEST  -Database demo -Offline
+Start-Sleep -Seconds 2
+
+# Taking snapshot of Protection Group MSSQL2
+#Write-Host "Taking snapshot of Protection Group mssql2" -ForegroundColor yellow
+New-PfaProtectionGroupSnapshot -Array $f -Protectiongroupname 'mssql2'
+Start-Sleep -Seconds 2
+
+
+foreach ($i in $disks) 
+{
+Write-Host "Offining Disk $i" -ForegroundColor yellow
+ Get-Disk $i | Set-Disk -IsOffline:$true
+ }
+
+
+#
+# refresh Volumes Snapshots
+#
+
+
+#Get-PfaProtectionGroupSnapshots -Array $f -Name 'mssql2'
+foreach ($v in $data)
+{
+$snapshot1= Get-PfaVolumeSnapshots -Array $f -VolumeName $v | Sort-Object created -Descending | Select-Object -First 1
+New-PfaVolume -Array $f -Source $snapshot1[0].name -VolumeName 'mssql2-clone-data' -Overwrite
+}
+
+foreach ($v in $backup)
+{
+$snapshot2 = Get-PfaVolumeSnapshots -Array $f -VolumeName $v | Sort-Object created -Descending | Select-Object -First 1
+New-PfaVolume -Array $f -Source $snapshot2[0].name -VolumeName 'mssql2-clone-backup' -Overwrite
+}
+
+foreach ($v in $temp)
+{
+$snapshot3 = Get-PfaVolumeSnapshots -Array $f -VolumeName $v | Sort-Object created -Descending | Select-Object -First 1
+New-PfaVolume -Array $f -Source $snapshot3[0].name -VolumeName 'mssql2-clone-temp' -Overwrite
+}
+
+
+foreach ($i in $disks) 
+{
+Write-Host "Onlining Disk $i" -ForegroundColor yellow
+ Get-Disk $i | Set-Disk -IsOffline:$false
+ }
+
+Write-Host "Renaming MSSQLTEST directory back to original name" -ForegroundColor yellow
+Rename-Item -Path "H:\MSSQL15.MSSQLPROD" -NewName "MSSQL15.MSSQLTEST"
+#Read-Host -Prompt "Press any key to continue:"
+Start-Sleep -Seconds 2
+
+Write-Host "Renaming MSSQLTEST directory back to original name" -ForegroundColor yellow
+Rename-Item -Path "I:\MSSQL15.MSSQLPROD" -NewName "MSSQL15.MSSQLTEST"
+#Read-Host -Prompt "Press any key to continue:"
+Start-Sleep -Seconds 2
+
+
+
+# Online MSSQLDR database
+Write-Host "Onling the testdb database" -ForegroundColor yellow
+Set-DbaDbState -SqlInstance WIN-BJFM234LVBM\MSSQLTEST  -Database demo -Online
+#Read-Host -Prompt "Press any key to Complete Refresh:"
+Start-Sleep -Seconds 3
+
+
+$EndMs = Get-Date
+
+Write-Host " "
+    Write-Host "-------------------------------------------------------"         -ForegroundColor Green
+    Write-Host " "
+    Write-Host "D A T A B A S E      R E F R E S H      C O M P L E T E"         -ForegroundColor Green
+    Write-Host " "
+    Write-Host "              Duration (s) = " ($EndMs - $StartMs).TotalSeconds  -ForegroundColor White
+    Write-Host " "
+    Write-Host "-------------------------------------------------------"         -ForegroundColor Green
+ 
